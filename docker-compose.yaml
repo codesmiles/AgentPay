@@ -1,0 +1,131 @@
+# AgentPay — full-stack autonomous payment agent
+#
+# Startup order:
+#   redis + blockchain-node  (infrastructure)
+#       → contract-deployer  (one-shot: deploys contracts, writes /shared/contracts.env)
+#           → agent-api + agent-worker  (pick up addresses via entrypoint.sh)
+#               → dashboard
+#
+# Required env vars (create a .env file at the project root):
+#   OPENAI_API_KEY=sk-...
+#   PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80  # Hardhat default
+#
+# Usage:
+#   docker-compose up --build        # first run
+#   docker-compose up                # subsequent runs
+#   docker-compose down -v           # stop + wipe volumes (fresh deploy next time)
+
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Blockchain ────────────────────────────────────────────────────────────
+
+  blockchain-node:
+    build:
+      context: ./contracts
+      dockerfile: Dockerfile
+    command: npx hardhat node --hostname 0.0.0.0
+    ports:
+      - "8545:8545"   # exposed for host-side tooling (hardhat scripts, explorers)
+    healthcheck:
+      test: ["CMD", "nc", "-z", "-w1", "localhost", "8545"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-shot deployer: runs once, writes addresses to the shared volume, then exits 0
+  contract-deployer:
+    build:
+      context: ./contracts
+      dockerfile: Dockerfile
+    command: npx hardhat run scripts/deploy.ts --network localhost
+    environment:
+      - RPC_URL=http://blockchain-node:8545
+      - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+    volumes:
+      - contract-addresses:/shared
+    depends_on:
+      blockchain-node:
+        condition: service_healthy
+    restart: "no"   # must be "no" — compose restarts deployer only on explicit `up`
+
+  # ── Agent Backend ─────────────────────────────────────────────────────────
+
+  agent-api:
+    build:
+      context: ./agent-backend
+      dockerfile: dockerfile
+    entrypoint: ["/entrypoint.sh"]
+    command: bun run src/index.ts
+    ports:
+      - "3001:3001"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RPC_URL=http://blockchain-node:8545
+      - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - contract-addresses:/shared
+    depends_on:
+      redis:
+        condition: service_healthy
+      contract-deployer:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  agent-worker:
+    build:
+      context: ./agent-backend
+      dockerfile: dockerfile
+    entrypoint: ["/entrypoint.sh"]
+    command: bun run src/workers/paymentWorker.ts
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RPC_URL=http://blockchain-node:8545
+      - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - contract-addresses:/shared
+    depends_on:
+      redis:
+        condition: service_healthy
+      contract-deployer:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Dashboard ─────────────────────────────────────────────────────────────
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Browser connects to the host-mapped port — not the internal Docker hostname
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+    depends_on:
+      - agent-api
+    restart: unless-stopped
+
+# ── Named volumes ─────────────────────────────────────────────────────────
+volumes:
+  contract-addresses:
+    # Shared between contract-deployer (writer) and agent-api/worker (readers)
+    # Contains contracts.env with CONTRACT_ADDRESS and USDT_ADDRESS

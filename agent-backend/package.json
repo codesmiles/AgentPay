@@ -1,0 +1,25 @@
+{
+  "name": "agent-backend",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.5.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "worker": "bun --watch src/workers/paymentWorker.ts",
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "bullmq": "^5.71.0",
+    "dotenv": "^17.3.1",
+    "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "openai": "^6.32.0"
+  }
+}
