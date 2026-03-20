@@ -16,7 +16,7 @@ const paymentQueue = new Queue("payments", { connection: REDIS });
 
 // API gateway
 const server = Bun.serve({
-    port: process.env["PORT"] ?? 3001,
+    port: process.env.PORT ?? 3001,
     async fetch(req) {
         return handleRoutes(req, paymentQueue);
     },

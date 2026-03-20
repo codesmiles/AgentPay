@@ -7,6 +7,7 @@ const USDT_ABI = [
 export class AgentWallet {
     readonly provider: ethers.JsonRpcProvider;
     private readonly wallet: ethers.Wallet;
+    private readonly managedSigner: ethers.NonceManager;
     private usdtContract: ethers.Contract | null = null;
 
     constructor() {
@@ -14,6 +15,7 @@ export class AgentWallet {
             process.env["RPC_URL"] ?? "http://127.0.0.1:8545"
         );
         this.wallet = new ethers.Wallet(process.env["PRIVATE_KEY"]!, this.provider);
+        this.managedSigner = new ethers.NonceManager(this.wallet);
 
         if (process.env["USDT_ADDRESS"]) {
             this.usdtContract = new ethers.Contract(
@@ -25,7 +27,7 @@ export class AgentWallet {
     }
 
     get address(): string { return this.wallet.address; }
-    get signer():  ethers.Wallet { return this.wallet; }
+    get signer():  ethers.NonceManager { return this.managedSigner; }
 
     async getEthBalance(): Promise<string> {
         const bal = await this.provider.getBalance(this.wallet.address);
