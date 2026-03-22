@@ -18,10 +18,10 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     next();
 });
 
-// Handle preflight requests
-router.options("*", (req: Request, res: Response) => {
-    res.sendStatus(204);
-});
+// // Handle preflight requests
+// router.options("*", (req: Request, res: Response) => {
+//     res.sendStatus(204);
+// });
 
 // ── GET /health ───────────────────────────────────────────────────────
 router.get("/health", async (req: Request, res: Response) => {

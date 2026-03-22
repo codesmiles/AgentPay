@@ -2,6 +2,23 @@
 
 AgentPay is a Docker-first autonomous escrow payment system for digital delivery workflows.
 
+## Vision
+
+AgentPay is built around a simple idea: digital work should be paid with the same certainty and automation that software already brings to delivery itself.
+
+In many online workflows, the hardest part is not moving money. It is deciding when money should move. Teams still rely on manual review, fragmented proofs, delayed approvals, and platform operators acting as the trust layer between both sides of a transaction.
+
+This project explores a different model:
+
+- escrow holds funds until delivery conditions are met
+- software evaluates delivery signals and risk in real time
+- AI-assisted reasoning helps determine whether to release, delay, or reject payment
+- every outcome is written to an auditable ledger and, when approved, executed on-chain
+
+The long-term vision is an autonomous payment agent that can sit between buyers, sellers, platforms, and service providers and handle digital delivery settlement with less friction, less ambiguity, and a stronger audit trail.
+
+That makes AgentPay a foundation for systems where payment is not a separate back-office step, but a programmable outcome of verified delivery.
+
 It combines:
 
 - a local Hardhat blockchain
