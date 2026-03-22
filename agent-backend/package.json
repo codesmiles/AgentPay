@@ -5,6 +5,7 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.5.0"
   },
   "peerDependencies": {
@@ -16,6 +17,12 @@
     "start": "bun src/index.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@tetherto/wdk": "^1.0.0-beta.6",
+    "@tetherto/wdk-protocol-bridge-usdt0-evm": "^1.0.0-beta.3",
+    "@tetherto/wdk-wallet-btc": "^1.0.0-beta.6",
+    "@tetherto/wdk-wallet-evm": "^1.0.0-beta.10",
+    "@tetherto/wdk-wallet-tron": "^1.0.0-beta.4",
     "bullmq": "^5.71.0",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",

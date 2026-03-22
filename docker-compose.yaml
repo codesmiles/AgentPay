@@ -20,6 +20,7 @@ services:
   # ── Infrastructure ────────────────────────────────────────────────────────
 
   redis:
+    container_name: redis
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -30,15 +31,31 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis-commander:
+    container_name: redis-commander
+    image: rediscommander/redis-commander:latest
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
   # ── Blockchain ────────────────────────────────────────────────────────────
 
   blockchain-node:
     build:
       context: ./contracts
       dockerfile: Dockerfile
-    command: npx hardhat node --hostname 0.0.0.0
+    command: npx hardhat node --config hardhat.config.simple.ts --hostname 0.0.0.0
     ports:
       - "8545:8545"   # exposed for host-side tooling (hardhat scripts, explorers)
+    volumes:
+      - ./contracts:/app
+      - /app/node_modules
+      - /app/artifacts
+      - /app/cache
     healthcheck:
       test: ["CMD", "nc", "-z", "-w1", "localhost", "8545"]
       interval: 3s
@@ -58,10 +75,14 @@ services:
       - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
     volumes:
       - contract-addresses:/shared
+      - ./contracts:/app
+      - /app/node_modules
+      - /app/artifacts
+      - /app/cache
     depends_on:
       blockchain-node:
         condition: service_healthy
-    restart: "no"   # must be "no" — compose restarts deployer only on explicit `up`
+    restart: "no"   # muast be "no" — compose restarts deployer only on explicit `up`
 
   # ── Agent Backend ─────────────────────────────────────────────────────────
 
@@ -73,14 +94,20 @@ services:
     command: bun run src/index.ts
     ports:
       - "3001:3001"
+    env_file: 
+      - ./agent-backend/.env
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - RPC_URL=http://blockchain-node:8545
+      - DB_PATH=/data/agentpay.db
       - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - contract-addresses:/shared
+      - agent-db:/data
+      - ./agent-backend:/app
     depends_on:
       redis:
         condition: service_healthy
@@ -94,14 +121,20 @@ services:
       dockerfile: dockerfile
     entrypoint: ["/entrypoint.sh"]
     command: bun run src/workers/paymentWorker.ts
+    env_file: 
+      - ./agent-backend/.env
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - RPC_URL=http://blockchain-node:8545
+      - DB_PATH=/data/agentpay.db
       - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - contract-addresses:/shared
+      - agent-db:/data
+      - ./agent-backend:/app
     depends_on:
       redis:
         condition: service_healthy
@@ -122,6 +155,10 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:3001
     depends_on:
       - agent-api
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+      - /app/.next
     restart: unless-stopped
 
 # ── Named volumes ─────────────────────────────────────────────────────────
@@ -129,3 +166,4 @@ volumes:
   contract-addresses:
     # Shared between contract-deployer (writer) and agent-api/worker (readers)
     # Contains contracts.env with CONTRACT_ADDRESS and USDT_ADDRESS
+  agent-db:

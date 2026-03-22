@@ -1,8 +1,8 @@
 import { Worker, type Job } from "bullmq";
-import { reasonAboutPayment }   from "../services/reasoning";
-import { analyzeFraudSignals }  from "../services/fraud";
-import { agentWallet }          from "../services/wallet";
-import { initScheduler }        from "../services/scheduler";
+import { reasonAboutPayment } from "../services/reasoning";
+import { analyzeFraudSignals } from "../services/fraud";
+import { agentWallet } from "../services/wallet";
+import { initScheduler } from "../services/scheduler";
 import {
     isAlreadyProcessed,
     getEscrowState,
@@ -12,8 +12,8 @@ import {
     executeFreezeEscrow,
 } from "../services/execution";
 import { saveDecision, updateDecisionTx } from "../db/decisions";
-import { getDb }                from "../db/schema";
-import { Queue }                from "bullmq";
+import { getDb } from "../db/schema";
+import { Queue } from "bullmq";
 import type { DeliveryEvent, ReasoningInput } from "../types";
 
 const REDIS = {
@@ -21,18 +21,39 @@ const REDIS = {
     port: Number(process.env["REDIS_PORT"] ?? 6379),
 };
 
-// ── Init DB + scheduler (worker is the autonomous process) ────────────────
+// ── Init DB + scheduler (worker is autonomous process) ────────────────
 getDb();
 const paymentQueue = new Queue("payments", { connection: REDIS });
 initScheduler(paymentQueue);
+
+// ── WDK Wallet Status Check ────────────────────────────────────────────
+async function logWdkStatus() {
+    try {
+        const status = await agentWallet.getStatus();
+        const supportedChains = await agentWallet.getSupportedChains();
+        console.log(`\n🔗 WDK Wallet Status:`);
+        console.log(`   Address: ${status.address}`);
+        console.log(`   Type: ${status.walletType || 'Standard'}`);
+        console.log(`   Chains: ${supportedChains.join(', ')}`);
+        console.log(`   ETH: ${status.ethBalance}  USDT: ${status.usdtBalance}`);
+        if (status.seedPhraseGenerated) {
+            console.log(`   ⚠️  Using auto-generated seed phrase`);
+        }
+    } catch (error) {
+        console.error('Error fetching WDK status:', error);
+    }
+}
+
+// Log WDK status on startup
+await logWdkStatus();
 
 // ── Worker ────────────────────────────────────────────────────────────────
 const worker = new Worker(
     "payments",
     async (job: Job) => {
-        const data       = job.data as DeliveryEvent & { eventHash: string };
+        const data = job.data as DeliveryEvent & { eventHash: string };
         const { deliveryId, escrowId, amount, recipient, eventType, eventHash } = data;
-        const SEP        = "═".repeat(58);
+        const SEP = "═".repeat(58);
 
         console.log(`\n${SEP}`);
         console.log(`🤖 [Job ${job.id}] ${eventType?.toUpperCase()} event`);
@@ -48,8 +69,8 @@ const worker = new Worker(
         }
 
         // ── ② Fetch escrow state ─────────────────────────────────────────
-        const escrow         = await getEscrowState(escrowId);
-        const escrowBalance  = escrow?.availableBalance ?? "0";
+        const escrow = await getEscrowState(escrowId);
+        const escrowBalance = escrow?.availableBalance ?? "0";
         const isEscrowActive = escrow ? escrow.status <= 1 : false;
 
         // ── ③ Fraud analysis ─────────────────────────────────────────────
@@ -63,12 +84,12 @@ const worker = new Worker(
         // ── ⑤ AI Reasoning ───────────────────────────────────────────────
         console.log(`\n🧠 Reasoning...`);
         const input: ReasoningInput = {
-            event:              data,
+            event: data,
             escrowBalance,
             agentWalletBalance: ethBalance,
-            fraudSignals:       fraud,
+            fraudSignals: fraud,
             contractRules: {
-                maxTxLimit:       "10000",
+                maxTxLimit: "10000",
                 isEscrowActive,
                 alreadyProcessed: false,
             },
@@ -85,20 +106,20 @@ const worker = new Worker(
             eventHash,
             escrowId,
             deliveryId,
-            eventType:          (eventType ?? "delivery"),
-            decision:           reasoning.decision,
-            confidence:         reasoning.confidence,
-            reasoning:          reasoning.reasoning,
-            riskFactors:        reasoning.riskFactors,
-            riskScore:          fraud.score,
+            eventType: (eventType ?? "delivery"),
+            decision: reasoning.decision,
+            confidence: reasoning.confidence,
+            reasoning: reasoning.reasoning,
+            riskFactors: reasoning.riskFactors,
+            riskScore: fraud.score,
             amount,
             recipient,
             agentWalletBalance: ethBalance,
-            retryCount:         data.retryCount ?? 0,
-            scheduledRetryAt:   reasoning.decision === "WAIT"
+            retryCount: data.retryCount ?? 0,
+            scheduledRetryAt: reasoning.decision === "WAIT"
                 ? new Date(Date.now() + 2 * 60 * 1000).toISOString()
                 : undefined,
-            timestamp:          new Date().toISOString(),
+            timestamp: new Date().toISOString(),
         });
 
         // ── ⑦ Execute ────────────────────────────────────────────────────
@@ -119,14 +140,14 @@ console.log(`⚙️  Payment Worker listening  (concurrency=1, nonce-safe)`);
 // ── Extracted execution helper (keeps worker callback under complexity limit) ──
 
 interface ExecParams {
-    data:       DeliveryEvent & { eventHash: string };
-    reasoning:  { decision: string; reasoning: string; recommendedAction: string };
-    fraud:      { score: number; signals: string[] };
-    escrowId:   string;
+    data: DeliveryEvent & { eventHash: string };
+    reasoning: { decision: string; reasoning: string; recommendedAction: string };
+    fraud: { score: number; signals: string[] };
+    escrowId: string;
     deliveryId: string;
-    amount:     string;
-    recipient:  string;
-    eventHash:  string;
+    amount: string;
+    recipient: string;
+    eventHash: string;
 }
 
 async function executeDecision(p: ExecParams): Promise<Record<string, unknown>> {
@@ -160,7 +181,7 @@ async function routeExecution(p: ExecParams): Promise<{ txHash: string; blockNum
     }
     if (p.data.splitRecipients?.length) {
         const addresses = p.data.splitRecipients.map(r => r.address);
-        const amounts   = p.data.splitRecipients.map(r => r.amount);
+        const amounts = p.data.splitRecipients.map(r => r.amount);
         return executeSplitPayment(p.escrowId, p.deliveryId, addresses, amounts);
     }
     return executeReleasePayment(p.escrowId, p.deliveryId, p.amount);

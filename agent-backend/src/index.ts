@@ -1,6 +1,7 @@
+import express from 'express';
 import { Queue } from "bullmq";
-import { handleRoutes } from "./routes";
-import { getDb }        from "./db/schema";
+import routes from "./routes";
+import { getDb } from "./db/schema";
 
 const REDIS = {
     host: process.env["REDIS_HOST"] ?? "127.0.0.1",
@@ -14,16 +15,21 @@ console.log("📦 Decision ledger ready (SQLite/WAL)");
 // Payment queue — the worker process consumes this
 const paymentQueue = new Queue("payments", { connection: REDIS });
 
-// API gateway
-const server = Bun.serve({
-    port: process.env.PORT ?? 3001,
-    async fetch(req) {
-        return handleRoutes(req, paymentQueue);
-    },
-});
+// Express app
+const app = express();
 
-console.log(`🚀 AgentPay API live at ${server.url}`);
-console.log(`🔑 Agent wallet : ${process.env["PRIVATE_KEY"] ? "✅ set" : "❌ MISSING"}`);
-console.log(`🧠 OpenAI key   : ${process.env["OPENAI_API_KEY"] ? "✅ set" : "❌ MISSING"}`);
-console.log(`⛓️  Contract     : ${process.env["CONTRACT_ADDRESS"] ?? "❌ MISSING"}`);
-console.log(`📮 USDT token   : ${process.env["USDT_ADDRESS"] ?? "❌ MISSING"}`);
+// Store queue in app locals for routes to access
+app.locals.queue = paymentQueue;
+
+// Use routes
+app.use('/', routes);
+
+// Start server
+const port = process.env.PORT ?? 3001;
+app.listen(port, () => {
+    console.log(`🚀 AgentPay API live at http://localhost:${port}`);
+    console.log(`🔑 Agent wallet : ${process.env["PRIVATE_KEY"] ? "✅ set" : "❌ MISSING"}`);
+    console.log(`🧠 OpenAI key   : ${process.env["OPENAI_API_KEY"] ? "✅ set" : "❌ MISSING"}`);
+    console.log(`⛓️  Contract     : ${process.env["CONTRACT_ADDRESS"] ?? "❌ MISSING"}`);
+    console.log(`📮 USDT token   : ${process.env["USDT_ADDRESS"] ?? "❌ MISSING"}`);
+});

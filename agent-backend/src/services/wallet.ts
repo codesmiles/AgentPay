@@ -1,71 +1,74 @@
 import { ethers } from "ethers";
+import { wdkAgentWallet } from "./wdkWallet.js";
 
 const USDT_ABI = [
     "function balanceOf(address) view returns (uint256)",
 ];
 
 export class AgentWallet {
-    readonly provider: ethers.JsonRpcProvider;
-    private readonly wallet: ethers.Wallet;
-    private readonly managedSigner: ethers.NonceManager;
-    private usdtContract: ethers.Contract | null = null;
+    private readonly wdkWallet = wdkAgentWallet;
 
     constructor() {
-        this.provider = new ethers.JsonRpcProvider(
-            process.env["RPC_URL"] ?? "http://127.0.0.1:8545"
-        );
-        this.wallet = new ethers.Wallet(process.env["PRIVATE_KEY"]!, this.provider);
-        this.managedSigner = new ethers.NonceManager(this.wallet);
+        // WDK wallet is initialized as singleton
 
-        if (process.env["USDT_ADDRESS"]) {
-            this.usdtContract = new ethers.Contract(
-                process.env["USDT_ADDRESS"],
-                USDT_ABI,
-                this.provider
-            );
-        }
     }
 
-    get address(): string { return this.wallet.address; }
-    get signer():  ethers.NonceManager { return this.managedSigner; }
+    async getAddress(): Promise<string> {
+        return this.wdkWallet.getAddress();
+    }
+
+    async getSigner() {
+        return this.wdkWallet.getSigner();
+    }
+
+    get provider(): ethers.JsonRpcProvider {
+        return this.wdkWallet.getProvider();
+    }
 
     async getEthBalance(): Promise<string> {
-        const bal = await this.provider.getBalance(this.wallet.address);
-        return ethers.formatEther(bal);
+        return this.wdkWallet.getEthBalance();
     }
 
     async getUsdtBalance(): Promise<string> {
-        if (!this.usdtContract) return "0";
-        const bal = await this.usdtContract["balanceOf"](this.wallet.address) as bigint;
-        return ethers.formatUnits(bal, 6);
+        return this.wdkWallet.getUsdtBalance();
     }
 
     async getContractUsdtBalance(): Promise<string> {
-        if (!this.usdtContract || !process.env["CONTRACT_ADDRESS"]) return "0";
-        const bal = await this.usdtContract["balanceOf"](process.env["CONTRACT_ADDRESS"]) as bigint;
-        return ethers.formatUnits(bal, 6);
+        return this.wdkWallet.getContractUsdtBalance();
     }
 
     async isLowOnGas(thresholdEth = "0.01"): Promise<boolean> {
-        const bal = await this.provider.getBalance(this.wallet.address);
-        return bal < ethers.parseEther(thresholdEth);
+        return this.wdkWallet.isLowOnGas(thresholdEth);
     }
 
     async getStatus() {
-        const [ethBalance, usdtBalance, lowGas, network] = await Promise.all([
-            this.getEthBalance(),
-            this.getUsdtBalance(),
-            this.isLowOnGas(),
-            this.provider.getNetwork(),
-        ]);
+        const status = await this.wdkWallet.getStatus();
         return {
-            address:    this.wallet.address,
-            ethBalance,
-            usdtBalance,
-            lowGas,
-            network:    network.name,
-            chainId:    Number(network.chainId),
+            ...status,
+            // Add legacy fields for compatibility
+            provider: status.network,
         };
+    }
+
+    // WDK-specific methods
+    async sendUsdt(recipient: string, amount: string): Promise<string> {
+        return this.wdkWallet.sendUsdt(recipient, amount);
+    }
+
+    async approveUsdt(spender: string, amount: string): Promise<string> {
+        return this.wdkWallet.approveUsdt(spender, amount);
+    }
+
+    getSupportedChains(): Promise<string[]> {
+        return this.wdkWallet.getSupportedChains();
+    }
+
+    getSeedPhrase(): string {
+        return this.wdkWallet.getSeedPhrase();
+    }
+
+    getWdkInstance() {
+        return this.wdkWallet.wdkInstance;
     }
 }
 

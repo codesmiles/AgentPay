@@ -50,6 +50,39 @@ const privateKey = process.env.PRIVATE_KEY
     ?? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const rpcUrl = process.env.RPC_URL ?? "http://127.0.0.1:8545";
 
+// Generate WDK seed phrase if not provided
+const wdkSeedPhrase = process.env.WDK_SEED_PHRASE;
+if (!wdkSeedPhrase) {
+    console.log("🔑 No WDK_SEED_PHRASE found, generating new one...");
+    console.log("   Add this to your .env file for persistence:");
+    console.log(`   WDK_SEED_PHRASE="${generateSeedPhrase()}"`);
+    console.log("");
+}
+
+function generateSeedPhrase(): string {
+    const words = [
+        "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse", "access",
+        "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire", "across", "act", "action",
+        "actor", "actress", "actual", "adapt", "add", "addict", "address", "adjust", "admit", "adult",
+        "advance", "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent",
+        "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album", "alcohol", "alert",
+        "alien", "all", "alley", "allow", "almost", "alone", "alpha", "already", "also", "alter",
+        "always", "amateur", "amazing", "among", "amount", "amused", "analyst", "anchor", "ancient", "anger",
+        "angle", "angry", "animal", "ankle", "announce", "annual", "another", "answer", "antenna", "antique",
+        "anxiety", "any", "apart", "apology", "appear", "apple", "approve", "april", "arch", "arctic",
+        "area", "arena", "argue", "arm", "armed", "armor", "army", "around", "arrange", "arrest",
+        "arrive", "arrow", "art", "artefact", "artist", "artwork", "ask", "aspect", "assault", "asset",
+        "assist", "assume", "asthma", "athlete", "atom", "attack", "attend", "attitude", "attract", "auction",
+        "audit", "august", "aunt", "author", "auto", "autumn", "average", "avocado", "avoid", "awake",
+        "aware", "away", "awesome", "awful", "awkward", "axis"
+    ];
+    const phrase = [];
+    for (let i = 0; i < 12; i++) {
+        phrase.push(words[Math.floor(Math.random() * words.length)]);
+    }
+    return phrase.join(" ");
+}
+
 const provider = new ethers.JsonRpcProvider(rpcUrl);
 const deployerWallet = new ethers.Wallet(privateKey, provider);
 const deployer = new ethers.NonceManager(deployerWallet);
@@ -121,6 +154,7 @@ if (fs.existsSync(sharedDir)) {
         USDT_ADDRESS: usdtAddress,
         REDIS_HOST: process.env.REDIS_HOST ?? "127.0.0.1",
         REDIS_PORT: process.env.REDIS_PORT ?? "6379",
+        WDK_SEED_PHRASE: wdkSeedPhrase || generateSeedPhrase(),
     });
     updateEnv(frontendEnvPath, {
         NEXT_PUBLIC_API_URL: "http://localhost:3001",

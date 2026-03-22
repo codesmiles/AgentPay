@@ -15,20 +15,22 @@ const ESCROW_ABI = [
 
 type TxResult = { txHash: string; blockNumber: number };
 
-function getContract(withSigner = false): ethers.Contract {
-    const runner  = withSigner ? agentWallet.signer : agentWallet.provider;
+async function getContract(withSigner = false): Promise<ethers.Contract> {
+    const runner = withSigner ? await agentWallet.getSigner() : agentWallet.provider;
     return new ethers.Contract(process.env["CONTRACT_ADDRESS"]!, ESCROW_ABI, runner);
 }
 
 // ── Read ──────────────────────────────────────────────────────────────────
 
 export async function isAlreadyProcessed(deliveryId: string): Promise<boolean> {
-    return getContract()["processedDeliveries"](deliveryId) as Promise<boolean>;
+    const contract = await getContract();
+    return contract["processedDeliveries"](deliveryId) as Promise<boolean>;
 }
 
 export async function getEscrowState(escrowId: string) {
     try {
-        const e = await getContract()["getEscrow"](escrowId) as {
+        const contract = await getContract();
+        const e = await contract["getEscrow"](escrowId) as {
             escrowId: string; depositor: string; recipient: string;
             totalAmount: bigint; releasedAmount: bigint;
             milestoneCount: bigint; milestonesCompleted: bigint;
@@ -60,7 +62,7 @@ export async function executeReleasePayment(
     deliveryId: string,
     amount:     string
 ): Promise<TxResult> {
-    const contract = getContract(true);
+    const contract = await getContract(true);
     const amountBn = ethers.parseUnits(amount, 6);
     console.log(`  💸 releasePayment ${amount} USDT | delivery=${deliveryId}`);
     const tx      = await contract["releasePayment"](escrowId, deliveryId, amountBn) as ethers.TransactionResponse;
@@ -74,7 +76,7 @@ export async function executeMilestonePayment(
     escrowId:   string,
     deliveryId: string
 ): Promise<TxResult> {
-    const contract = getContract(true);
+    const contract = await getContract(true);
     console.log(`  🎯 milestonePayment | delivery=${deliveryId}`);
     const tx      = await contract["milestonePayment"](escrowId, deliveryId) as ethers.TransactionResponse;
     console.log(`  🔗 TX: ${tx.hash}`);
@@ -88,7 +90,7 @@ export async function executeSplitPayment(
     recipients: string[],
     amounts:    string[]
 ): Promise<TxResult> {
-    const contract   = getContract(true);
+    const contract   = await getContract(true);
     const parsedAmts = amounts.map(a => ethers.parseUnits(a, 6));
     console.log(`  🔀 splitPayment | delivery=${deliveryId} | ${recipients.length} recipients`);
     const tx      = await contract["splitPayment"](escrowId, deliveryId, recipients, parsedAmts) as ethers.TransactionResponse;
@@ -98,7 +100,7 @@ export async function executeSplitPayment(
 }
 
 export async function executeFreezeEscrow(escrowId: string, reason: string): Promise<string> {
-    const contract = getContract(true);
+    const contract = await getContract(true);
     console.log(`  🔒 freezeEscrow | escrow=${escrowId}`);
     const tx = await contract["freezeEscrow"](escrowId, reason) as ethers.TransactionResponse;
     await tx.wait();

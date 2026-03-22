@@ -1,141 +1,174 @@
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import type { Queue } from "bullmq";
-import { getDecisions, getStats }  from "./db/decisions";
-import { agentWallet }             from "./services/wallet";
-import { hashEvent }               from "./services/fraud";
-import type { DeliveryEvent }      from "./types";
+import { getDecisions, getStats } from "./db/decisions";
+import { agentWallet } from "./services/wallet";
+import { hashEvent } from "./services/fraud";
+import { aiProvider } from "./services/aiProvider";
+import type { DeliveryEvent } from "./types";
 
-const CORS = {
-    "Access-Control-Allow-Origin":  "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-};
+const router = express.Router();
 
-function json(data: unknown, status = 200): Response {
-    return Response.json(data, { status, headers: CORS });
-}
+// Middleware for JSON parsing and CORS
+router.use(express.json());
+router.use((req: Request, res: Response, next: NextFunction) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type");
+    next();
+});
 
-export async function handleRoutes(req: Request, queue: Queue): Promise<Response> {
-    const { pathname, searchParams } = new URL(req.url);
-    const method = req.method;
+// Handle preflight requests
+router.options("*", (req: Request, res: Response) => {
+    res.sendStatus(204);
+});
 
-    if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+// ── GET /health ───────────────────────────────────────────────────────
+router.get("/health", async (req: Request, res: Response) => {
+    const wallet = await agentWallet.getStatus().catch(() => null);
+    res.json({ status: "ACTIVE", timestamp: new Date().toISOString(), wallet });
+});
 
-    // ── GET /health ───────────────────────────────────────────────────────
-    if (pathname === "/health" && method === "GET") {
-        const wallet = await agentWallet.getStatus().catch(() => null);
-        return json({ status: "ACTIVE", timestamp: new Date().toISOString(), wallet });
-    }
-
-    // ── GET /agent/status ─────────────────────────────────────────────────
-    if (pathname === "/agent/status" && method === "GET") {
-        const [wallet, stats, queueDepth] = await Promise.all([
-            agentWallet.getStatus(),
-            getStats(),
-            queue.count(),
-        ]);
-        return json({
-            agent: {
-                status:   "AUTONOMOUS",
-                contract: process.env["CONTRACT_ADDRESS"] ?? "not set",
-                wallet,
-                queue:    { depth: queueDepth },
-            },
-            statistics: stats,
-        });
-    }
-
-    // ── GET /agent/decisions ──────────────────────────────────────────────
-    if (pathname === "/agent/decisions" && method === "GET") {
-        const limit  = Math.min(Number(searchParams.get("limit")  ?? 50), 200);
-        const offset = Number(searchParams.get("offset") ?? 0);
-        return json({ decisions: getDecisions(limit, offset), stats: getStats() });
-    }
-
-    // ── POST /webhook/delivery ────────────────────────────────────────────
-    if (pathname === "/webhook/delivery" && method === "POST") {
-        return enqueueEvent(req, queue, "delivery");
-    }
-
-    // ── POST /webhook/milestone ───────────────────────────────────────────
-    if (pathname === "/webhook/milestone" && method === "POST") {
-        return enqueueEvent(req, queue, "milestone");
-    }
-
-    // ── POST /oracle/input  (manual override) ─────────────────────────────
-    if (pathname === "/oracle/input" && method === "POST") {
-        return enqueueEvent(req, queue, "oracle");
-    }
-
-    // ── GET /demo/setup ───────────────────────────────────────────────────
-    if (pathname === "/demo/setup" && method === "GET") {
-        return json({
-            message: "AgentPay demo — copy these curl commands",
-            step1_delivery: {
-                curl: `curl -X POST http://localhost:3001/webhook/delivery -H 'Content-Type: application/json' -d '${JSON.stringify({
-                    deliveryId: `del-${Date.now()}`,
-                    escrowId:   "escrow-demo-001",
-                    amount:     "50.00",
-                    recipient:  agentWallet.address,
-                    status:     "completed",
-                    metadata:   { courier: "FastShip Co.", route: "NYC→LA", proof: "https://proof.example.com/001" },
-                })}'`,
-            },
-            step2_milestone: {
-                curl: `curl -X POST http://localhost:3001/webhook/milestone -H 'Content-Type: application/json' -d '${JSON.stringify({
-                    deliveryId: `ms-${Date.now()}`,
-                    escrowId:   "escrow-milestone-001",
-                    amount:     "0",
-                    recipient:  agentWallet.address,
-                    status:     "milestone_reached",
-                })}'`,
-            },
-            step3_decisions: "curl http://localhost:3001/agent/decisions",
-        });
-    }
-
-    return new Response("Not Found", { status: 404, headers: CORS });
-}
-
-// ── Shared enqueue logic ──────────────────────────────────────────────────
-
-async function enqueueEvent(req: Request, queue: Queue, eventType: DeliveryEvent["eventType"]): Promise<Response> {
-    let body: Partial<DeliveryEvent>;
-    try {
-        body = await req.json() as Partial<DeliveryEvent>;
-    } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "parse error";
-        return json({ error: "Invalid JSON body", detail: msg }, 400);
-    }
-
-    if (!body.deliveryId || !body.escrowId || !body.recipient) {
-        return json({ error: "Missing required fields: deliveryId, escrowId, recipient" }, 400);
-    }
-
-    const event: DeliveryEvent = {
-        deliveryId:      body.deliveryId,
-        escrowId:        body.escrowId,
-        amount:          body.amount      ?? "0",
-        recipient:       body.recipient,
-        status:          body.status      ?? (eventType === "milestone" ? "milestone_reached" : "completed"),
-        eventType,
-        milestoneIndex:  body.milestoneIndex,
-        splitRecipients: body.splitRecipients,
-        metadata:        body.metadata,
-    };
-
-    const eventHash = hashEvent(event);
-
-    // Idempotent — BullMQ deduplicates by jobId
-    const job = await queue.add("process-payment", { ...event, eventHash }, {
-        jobId:           eventHash,
-        removeOnComplete: false,
-        removeOnFail:     false,
+// ── GET /agent/status ─────────────────────────────────────────────────
+router.get("/agent/status", async (req: Request, res: Response) => {
+    const [wallet, stats, queueDepth] = await Promise.all([
+        agentWallet.getStatus(),
+        getStats(),
+        // queue will be passed from the main app
+        req.app.locals.queue.count(),
+    ]);
+    res.json({
+        agent: {
+            status: "AUTONOMOUS",
+            contract: process.env["CONTRACT_ADDRESS"] ?? "not set",
+            wallet,
+            queue: { depth: queueDepth },
+        },
+        statistics: stats,
     });
+});
 
-    return json({
-        success:   true,
-        jobId:     job.id,
-        eventHash,
-        message:   "Event queued — agent is reasoning autonomously",
-    }, 202);
+// ── GET /agent/wdk/status ────────────────────────────────────────────────
+router.get("/agent/wdk/status", async (req: Request, res: Response) => {
+    const wallet = await agentWallet.getStatus();
+    const supportedChains = await agentWallet.getSupportedChains();
+    const seedPhrase = agentWallet.getSeedPhrase();
+
+    res.json({
+        wallet: {
+            ...wallet,
+            supportedChains,
+            hasSeedPhrase: !!seedPhrase,
+            seedPhraseLength: seedPhrase.length,
+        },
+        features: {
+            multiChain: supportedChains.length > 1,
+            wdkEnabled: true,
+            autoGenerated: wallet.seedPhraseGenerated,
+        }
+    });
+});
+
+// ── GET /agent/ai/status ─────────────────────────────────────────────────
+router.get("/agent/ai/status", (req: Request, res: Response) => {
+    res.json(aiProvider.getStatus());
+});
+
+// ── POST /agent/ai/switch ─────────────────────────────────────────────────
+router.post("/agent/ai/switch", async (req: Request, res: Response) => {
+    const { provider } = req.body as { provider?: "openai" | "gemini" };
+
+    if (!provider) {
+        return res.status(400).json({ error: "Missing provider field" });
+    }
+
+    try {
+        aiProvider.setProvider(provider);
+        res.json({
+            success: true,
+            currentProvider: provider,
+            status: aiProvider.getStatus()
+        });
+    } catch (error) {
+        res.status(400).json({
+            error: error instanceof Error ? error.message : "Failed to switch provider"
+        });
+    }
+});
+
+// ── GET /agent/decisions ──────────────────────────────────────────────
+router.get("/agent/decisions", (req: Request, res: Response) => {
+    const limit = Math.min(Number(req.query.limit ?? 50), 200);
+    const offset = Number(req.query.offset ?? 0);
+    res.json({ decisions: getDecisions(limit, offset), stats: getStats() });
+});
+
+// ── POST /webhook/delivery ────────────────────────────────────────────
+router.post("/webhook/delivery", async (req: Request, res: Response) => {
+    return enqueueEvent(req, req.app.locals.queue, "delivery", res);
+});
+
+// ── POST /webhook/milestone ───────────────────────────────────────────
+router.post("/webhook/milestone", async (req: Request, res: Response) => {
+    return enqueueEvent(req, req.app.locals.queue, "milestone", res);
+});
+
+// ── POST /oracle/input  (manual override) ─────────────────────────────
+router.post("/oracle/input", async (req: Request, res: Response) => {
+    return enqueueEvent(req, req.app.locals.queue, "oracle", res);
+});
+
+// ── GET /demo/setup ───────────────────────────────────────────────────
+router.get("/demo/setup", async (req: Request, res: Response) => {
+    const address = await agentWallet.getAddress();
+    res.json({
+        message: "AgentPay demo — copy these curl commands",
+        step1_delivery: {
+            curl: `curl -X POST http://localhost:3001/webhook/delivery -H 'Content-Type: application/json' -d '${JSON.stringify({
+                deliveryId: `del-${Date.now()}`,
+                escrowId: "escrow-demo-001",
+                amount: "50.00",
+                recipient: address,
+                status: "completed",
+                metadata: { courier: "FastShip Co.", route: "NYC→LA", proof: "https://proof.example.com/001" },
+            })}'`,
+        },
+        step2_milestone: {
+            curl: `curl -X POST http://localhost:3001/webhook/milestone -H 'Content-Type: application/json' -d '${JSON.stringify({
+                deliveryId: `ms-${Date.now()}`,
+                escrowId: "escrow-milestone-001",
+                amount: "0",
+                recipient: address,
+                status: "milestone_reached",
+            })}'`,
+        },
+        step3_decisions: "curl http://localhost:3001/agent/decisions",
+    });
+});
+
+// Helper function to enqueue events
+async function enqueueEvent(req: express.Request, queue: Queue, eventType: string, res: express.Response) {
+    try {
+        const event = req.body as DeliveryEvent;
+        const fraudScore = await hashEvent(event);
+
+        await queue.add(eventType, event, {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: 100,
+            removeOnFail: 50,
+        });
+
+        res.json({
+            queued: true,
+            eventId: `${eventType}-${Date.now()}`,
+            fraudScore
+        });
+    } catch (error) {
+        res.status(400).json({
+            error: error instanceof Error ? error.message : "Invalid JSON"
+        });
+    }
 }
+
+export default router;

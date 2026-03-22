@@ -56,8 +56,9 @@ async function checkWalletHealth() {
         const isLow = await agentWallet.isLowOnGas(GAS_THRESHOLD_ETH);
         if (isLow) {
             const bal = await agentWallet.getEthBalance();
+            const address = await agentWallet.getAddress();
             console.warn(`\n⚠️  LOW GAS: agent wallet has ${bal} ETH (threshold: ${GAS_THRESHOLD_ETH} ETH)`);
-            console.warn(`   Refund address: ${agentWallet.address}`);
+            console.warn(`   Refund address: ${address}`);
         }
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

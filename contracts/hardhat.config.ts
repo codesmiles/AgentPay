@@ -1,7 +1,11 @@
 import { defineConfig } from "hardhat/config";
-import dotenv from "dotenv";
+import { config as dotenvConfig } from "dotenv";
 
-dotenv.config();
+// Load environment variables
+const dotenvConfigResult = dotenvConfig();
+if (dotenvConfigResult.error) {
+  throw dotenvConfigResult.error;
+}
 
 export default defineConfig({
   solidity: {
@@ -29,8 +33,8 @@ export default defineConfig({
     // },
   },
   paths: {
-    sources: "./contracts",  // AgentPayEscrow.sol, MockUSDT.sol
-    artifacts: "./artifacts",
-    cache: "./cache",
-  },
+    sources: "./contracts",
+    artifacts: "./.hardhat-state/artifacts",
+    cache: "./.hardhat-state/cache",
+  }
 });

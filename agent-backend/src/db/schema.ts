@@ -5,7 +5,8 @@ let db: Database | null = null;
 export function getDb(): Database {
     if (db) return db;
 
-    db = new Database("agentpay.db", { create: true });
+    const dbPath = process.env["DB_PATH"] ?? "agentpay.db";
+    db = new Database(dbPath, { create: true });
 
     // WAL mode: allows concurrent reads while writing
     db.run("PRAGMA journal_mode = WAL;");
