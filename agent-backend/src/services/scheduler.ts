@@ -2,14 +2,14 @@ import type { Queue } from "bullmq";
 import { getPendingWaits, updateDecisionRetry } from "../db/decisions";
 import { agentWallet } from "./wallet";
 
-const RETRY_INTERVAL_MS  = 2 * 60 * 1000;  // 2 minutes
-const HEALTH_INTERVAL_MS = 30 * 1000;       // 30 seconds
-const GAS_THRESHOLD_ETH  = "0.05";
+const RETRY_INTERVAL_MS = Number.parseInt(process.env.RETRY_INTERVAL_MS || `${2 * 60 * 1000}`);  // 2 minutes
+const HEALTH_INTERVAL_MS = Number.parseInt(process.env.HEALTH_INTERVAL_MS || `${30 * 1000}`);       // 30 seconds
+const GAS_THRESHOLD_ETH  = process.env.GAS_THRESHOLD_ETH || "0.05";
 
 export function initScheduler(queue: Queue) {
     // Stagger first runs to avoid startup noise
+    setTimeout(() => checkWalletHealth(), 5_000);
     setTimeout(() => retryWaitingPayments(queue), 15_000);
-    setTimeout(() => checkWalletHealth(),         5_000);
 
     setInterval(() => retryWaitingPayments(queue), RETRY_INTERVAL_MS);
     setInterval(() => checkWalletHealth(),         HEALTH_INTERVAL_MS);

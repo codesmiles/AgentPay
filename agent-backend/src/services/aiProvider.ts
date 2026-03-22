@@ -10,6 +10,9 @@ export interface AIConfig {
     model?: string;
 }
 
+const DEFAULT_OPENAI_MODEL = "gpt-4o";
+const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+
 const SYSTEM_PROMPT = `You are an autonomous financial settlement AI agent for AgentPay.
 You control an Ethereum smart-contract escrow that holds USDT. When you decide PAY, real
 money moves on-chain — so be precise and accountable.
@@ -213,7 +216,7 @@ Return a JSON object with these fields: decision (PAY/WAIT/REJECT), confidence (
         };
 
         const response = await this.openai.chat.completions.create({
-            model:           process.env.OPENAI_MODEL || "gpt-4o",
+            model:           process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
             messages:        [
                 { role: "system", content: SYSTEM_PROMPT },
                 { role: "user",   content: prompt },
@@ -236,7 +239,8 @@ Return a JSON object with these fields: decision (PAY/WAIT/REJECT), confidence (
         if (!this.gemini) throw new Error("Gemini provider not initialized");
 
         const model = this.gemini.getGenerativeModel({
-            model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+            model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+            // model: "gemini-2.0-flash",
             generationConfig: {
                 temperature: 0.1,
                 maxOutputTokens: 1000,

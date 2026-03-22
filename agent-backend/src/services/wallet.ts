@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { wdkAgentWallet } from "./wdkWallet.js";
+import { wdkAgentWallet } from "./wdkWallet";
 
 const USDT_ABI = [
     "function balanceOf(address) view returns (uint256)",

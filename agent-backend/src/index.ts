@@ -28,8 +28,10 @@ app.use('/', routes);
 const port = process.env.PORT ?? 3001;
 app.listen(port, () => {
     console.log(`🚀 AgentPay API live at http://localhost:${port}`);
-    console.log(`🔑 Agent wallet : ${process.env["PRIVATE_KEY"] ? "✅ set" : "❌ MISSING"}`);
-    console.log(`🧠 OpenAI key   : ${process.env["OPENAI_API_KEY"] ? "✅ set" : "❌ MISSING"}`);
+    console.log(`🔑 Agent wallet : ${process.env["PRIVATE_KEY"]?.length ? "✅ set" : "❌ MISSING"}`);
+    console.log("agent wallet:", process.env["PRIVATE_KEY"])
+    console.log(`🧠 OpenAI key   : ${process.env["OPENAI_API_KEY"]?.length ? "✅ set" : "❌ MISSING"}`);
+    console.log(`🧠 GEMINI key   : ${process.env["GEMINI_API_KEY"]?.length ? "✅ set" : "❌ MISSING"}`);
     console.log(`⛓️  Contract     : ${process.env["CONTRACT_ADDRESS"] ?? "❌ MISSING"}`);
     console.log(`📮 USDT token   : ${process.env["USDT_ADDRESS"] ?? "❌ MISSING"}`);
 });
